@@ -242,206 +242,39 @@ admin_html = style + """
 """
 @app.route('/')
 def index():
-    return render_template_string(login_html, mensaje=None)
+    perfumes = tabla_perfumes.scan().get('Items', [])
+    for perfume in perfumes:
+        perfume['precio'] = float(perfume['precio'])
+        perfume['stock'] = int(perfume['stock'])
+    return render_template_string(main_page_html, perfumes=perfumes)
 
-@app.route('/usuario')
-def usuario():
-    if 'username' not in session:
-        return redirect('/')
-    username = session['username']
-    celulares = tabla_celulares.scan().get('Items', [])
-    # Convertir Decimal a float
-    for celular in celulares:
-        celular['precio'] = float(celular['precio'])
-        celular['stock'] = int(celular['stock'])
+# Admin login
+@app.route('/admin_login', methods=['GET', 'POST'])
+def admin_login():
+    mensaje = None
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
 
-    carrito = session.get('carrito', [])
-    total = sum(float(item['precio']) * int(item['cantidad']) for item in carrito)
-    mensaje_stock = session.pop('mensaje_stock', None)
-    mensaje_compra = session.pop('mensaje_compra', None)
-    return render_template_string(main_page_html, username=username, celulares=celulares, carrito=carrito, total=total, mensaje_compra=mensaje_compra, mensaje_stock=mensaje_stock)
-
-@app.route('/login', methods=['POST'])
-def login():
-    username = request.form['username']
-    password = request.form['password']
-
-    if not username or not password:
-        return render_template_string(login_html, mensaje="Por favor completa todos los campos")
-
-    try:
-        response = tabla_usuarios.get_item(Key={'username': username})
-        user = response.get('Item')
-        if user and check_password_hash(user['password'], password):
-            session['username'] = username
-            session['carrito'] = []
-            celulares = tabla_celulares.scan().get('Items', [])
-            for celular in celulares:
-                celular['precio'] = float(celular['precio'])
-                celular['stock'] = int(celular['stock'])
-            return render_template_string(main_page_html, username=username, celulares=celulares, carrito=session['carrito'], total=0, mensaje_compra=None, mensaje_stock=None)
-        else:
-            return render_template_string(login_html, mensaje="Credenciales incorrectas")
-    except Exception as e:
-        return render_template_string(login_html, mensaje=f"Error: {str(e)}")
-
-@app.route('/register', methods=['POST'])
-def register():
-    username = request.form['username']
-    password = request.form['password']
-
-    if not username or not password:
-        return render_template_string(login_html, mensaje="Por favor completa todos los campos")
-
-    try:
-        existing = tabla_usuarios.get_item(Key={'username': username}).get('Item')
-        if existing:
-            return render_template_string(login_html, mensaje="El usuario ya existe")
-
-        hashed_password = generate_password_hash(password)
-        tabla_usuarios.put_item(Item={'username': username, 'password': hashed_password})
-        return render_template_string(login_html, mensaje="Usuario registrado correctamente")
-    except Exception as e:
-        return render_template_string(login_html, mensaje=f"Error: {str(e)}")
-
-@app.route('/agregar_carrito', methods=['POST'])
-def agregar_carrito():
-    if 'carrito' not in session:
-        session['carrito'] = []
-
-    try:
-        nombre = request.form.get('nombre')
-        precio_str = request.form.get('precio')
-
-        if not nombre or not precio_str:
-            raise ValueError("Nombre o precio no proporcionado")
-
-        precio = float(precio_str)
-
-        response = tabla_celulares.get_item(Key={'nombre': nombre})
-        celular = response.get('Item')
-
-        if not celular:
-            mensaje = "Producto no encontrado"
-        else:
-            stock = int(celular.get('stock', 0))
-            carrito = session['carrito']
-
-            for item in carrito:
-                if item['nombre'] == nombre:
-                    if item['cantidad'] < stock:
-                        item['cantidad'] += 1
-                        mensaje = None
-                    else:
-                        mensaje = "No hay más stock disponible"
-                    break
+        try:
+            response = tabla_usuarios.get_item(Key={'username': username})
+            user = response.get('Item')
+            if user and check_password_hash(user['password'], password):
+                session['username'] = username
+                return redirect('/admin')
             else:
-                if stock > 0:
-                    carrito.append({'nombre': nombre, 'precio': precio, 'cantidad': 1})
-                    mensaje = None
-                else:
-                    mensaje = "Producto agotado"
+                mensaje = "Credenciales incorrectas"
+        except Exception as e:
+            mensaje = f"Error: {str(e)}"
+    return render_template_string(admin_login_html, mensaje=mensaje)
 
-            session['carrito'] = carrito
-
-        celulares = tabla_celulares.scan().get('Items', [])
-        for celular in celulares:
-            celular['precio'] = float(celular['precio'])
-            celular['stock'] = int(celular['stock'])
-
-        total = sum(item['precio'] * item['cantidad'] for item in session['carrito'])
-
-        return render_template_string(
-            main_page_html,
-            username=session.get('username', 'Invitado'),
-            celulares=celulares,
-            carrito=session['carrito'],
-            total=total,
-            mensaje_stock=mensaje,
-            mensaje_compra=None
-        )
-
-    except Exception as e:
-        mensaje = f"Error al procesar la solicitud: {str(e)}"
-        celulares = tabla_celulares.scan().get('Items', [])
-        for celular in celulares:
-            celular['precio'] = float(celular['precio'])
-            celular['stock'] = int(celular['stock'])
-
-        total = sum(item['precio'] * item['cantidad'] for item in session.get('carrito', []))
-
-        return render_template_string(
-            main_page_html,
-            username=session.get('username', 'Invitado'),
-            celulares=celulares,
-            carrito=session.get('carrito', []),
-            total=total,
-            mensaje_stock=mensaje,
-            mensaje_compra=None
-        )
-
-@app.route('/eliminar_carrito', methods=['POST'])
-def eliminar_carrito():
-    nombre = request.form['nombre']
-    carrito = session.get('carrito', [])
-    for item in carrito:
-        if item['nombre'] == nombre:
-            item['cantidad'] -= 1
-            if item['cantidad'] <= 0:
-                carrito.remove(item)
-            break
-    session['carrito'] = carrito
-    celulares = tabla_celulares.scan().get('Items', [])
-    for celular in celulares:
-        celular['precio'] = float(celular['precio'])
-        celular['stock'] = int(celular['stock'])
-    total = sum(float(item['precio']) * int(item['cantidad']) for item in carrito)
-    return render_template_string(main_page_html, username=session['username'], celulares=celulares, carrito=carrito, total=total, mensaje_stock=None, mensaje_compra=None)
-
-@app.route('/comprar', methods=['POST'])
-def comprar():
-    carrito = session.get('carrito', [])
-    if not carrito:
-        session['mensaje_stock'] = "El carrito está vacío"
-        return redirect('/usuario')
-
-    try:
-        for item in carrito:
-            nombre = item['nombre']
-            cantidad = item['cantidad']
-
-            response = tabla_celulares.get_item(Key={'nombre': nombre})
-            celular = response.get('Item')
-            if not celular:
-                session['mensaje_stock'] = f"Producto {nombre} no encontrado"
-                return redirect('/usuario')
-            stock = int(celular.get('stock', 0))
-
-            if stock < cantidad:
-                session['mensaje_stock'] = f"Stock insuficiente para {nombre}"
-                return redirect('/usuario')
-
-            nuevo_stock = stock - cantidad
-            tabla_celulares.update_item(
-                Key={'nombre': nombre},
-                UpdateExpression='SET stock = :val',
-                ExpressionAttributeValues={':val': nuevo_stock}
-            )
-
-        session['carrito'] = []
-        session['mensaje_compra'] = "¡Compra exitosa! Gracias por tu compra."
-        return redirect('/usuario')
-    except Exception as e:
-        session['mensaje_stock'] = f"Error al procesar la compra: {str(e)}"
-        return redirect('/usuario')
-
+# Vista admin (solo si logueado)
 @app.route('/admin', methods=['GET', 'POST'])
 def vista_admin():
     if 'username' not in session:
-        return redirect('/')
+        return redirect('/admin_login')
 
     mensaje = None
-
     if request.method == 'POST':
         try:
             nombre = request.form['nombre']
@@ -452,43 +285,56 @@ def vista_admin():
             if not nombre or not imagen:
                 mensaje = "Todos los campos son obligatorios"
             else:
-                tabla_celulares.put_item(Item={
+                tabla_perfumes.put_item(Item={
                     'nombre': nombre,
                     'precio': precio,
                     'imagen': imagen,
                     'stock': stock
                 })
-                mensaje = "Celular agregado exitosamente"
+                mensaje = "Perfume agregado exitosamente"
         except Exception as e:
             mensaje = f"Error: {str(e)}"
 
-    celulares = tabla_celulares.scan().get('Items', [])
-    for celular in celulares:
-        celular['precio'] = float(celular['precio'])
-        celular['stock'] = int(celular['stock'])
-    return render_template_string(admin_html, username=session['username'], celulares=celulares, mensaje=mensaje)
+    perfumes = tabla_perfumes.scan().get('Items', [])
+    for perfume in perfumes:
+        perfume['precio'] = float(perfume['precio'])
+        perfume['stock'] = int(perfume['stock'])
+    return render_template_string(admin_html, perfumes=perfumes, mensaje=mensaje)
 
-@app.route('/editar_celular/<nombre>', methods=['POST'])
-def editar_celular(nombre):
-    nuevo_stock = int(request.form['stock'])
-    nuevo_precio = Decimal(request.form['precio'])
+# Agregar al carrito
+@app.route('/agregar_carrito', methods=['POST'])
+def agregar_carrito():
+    if 'carrito' not in session:
+        session['carrito'] = []
 
-    if nuevo_stock > 100:
-        return "<h3 style='color:red;'>El stock no puede ser mayor a 100.</h3><a href='/admin'>Volver</a>"
+    nombre = request.form['nombre']
+    precio = float(request.form['precio'])
 
-    try:
-        tabla_celulares.update_item(
-            Key={'nombre': nombre},
-            UpdateExpression="SET precio = :precio, stock = :stock",
-            ExpressionAttributeValues={
-                ':precio': nuevo_precio,
-                ':stock': nuevo_stock
-            }
-        )
-        return redirect('/admin')
-    except Exception as e:
-        return f"<h3 style='color:red;'>Error al actualizar celular: {str(e)}</h3><a href='/admin'>Volver</a>"
+    response = tabla_perfumes.get_item(Key={'nombre': nombre})
+    perfume = response.get('Item')
 
+    if perfume:
+        stock = int(perfume['stock'])
+        carrito = session['carrito']
+
+        for item in carrito:
+            if item['nombre'] == nombre:
+                if item['cantidad'] < stock:
+                    item['cantidad'] += 1
+                break
+        else:
+            if stock > 0:
+                carrito.append({'nombre': nombre, 'precio': precio, 'cantidad': 1})
+
+        session['carrito'] = carrito
+
+    perfumes = tabla_perfumes.scan().get('Items', [])
+    for perfume in perfumes:
+        perfume['precio'] = float(perfume['precio'])
+        perfume['stock'] = int(perfume['stock'])
+    return render_template_string(main_page_html, perfumes=perfumes)
+
+# Logout
 @app.route('/logout')
 def logout():
     session.clear()

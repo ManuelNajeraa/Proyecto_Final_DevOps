@@ -89,6 +89,18 @@ style = """
         border: 1px solid #ddd;
         padding: 10px;
     }
+    th:first-child {
+    border-top-left-radius: 15px;
+    }
+    th:last-child {
+        border-top-right-radius: 15px;
+    }
+    tr:last-child td:first-child {
+        border-bottom-left-radius: 15px;
+    }
+    tr:last-child td:last-child {
+        border-bottom-right-radius: 15px;
+    }
     th {
         background-color: #d9b99b;
     }
@@ -123,6 +135,8 @@ main_page_html = style + """
             <h3>{{ perfume.nombre }}</h3>
             <img src="{{ perfume.imagen }}">
             <p>Precio: ${{ perfume.precio }}</p>
+            <p>Cantidad: {{ perfume.stock }}</p>
+
             <form method="post" action="/agregar_carrito">
                 <input type="hidden" name="nombre" value="{{ perfume.nombre }}">
                 <input type="hidden" name="precio" value="{{ perfume.precio }}">
@@ -134,13 +148,12 @@ main_page_html = style + """
 
     <h2 style="text-align: center;">Carrito de compras</h2>
     <table>
-        <tr><th>Producto</th><th>Precio</th><th>Cantidad</th><th>Subtotal</th><th>Acciones</th></tr>
+        <tr><th>Producto</th><th>Precio</th><th>Cantidad</th><th>Acciones</th></tr>
         {% for item in carrito %}
         <tr>
             <td>{{ item.nombre }}</td>
             <td>${{ item.precio }}</td>
             <td>{{ item.cantidad }}</td>
-            <td>${{ item.precio * item.cantidad }}</td>
             <td>
                 <form method="post" action="/eliminar_carrito" style="display:inline;">
                     <input type="hidden" name="nombre" value="{{ item.nombre }}">

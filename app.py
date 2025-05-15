@@ -2,6 +2,7 @@ from flask import Flask, render_template_string, request, redirect, session
 from werkzeug.security import generate_password_hash, check_password_hash
 import boto3
 from decimal import Decimal
+from functools import wraps
 
 app = Flask(__name__)
 app.secret_key = 'jm-aromas-secret-key'

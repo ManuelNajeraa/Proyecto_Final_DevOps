@@ -240,15 +240,28 @@ admin_html = style + """
 </body>
 </html>
 """
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'username' not in session:
+            return redirect('/admin_login')
+        return f(*args, **kwargs)
+    return decorated_function
+
+# ---------- Rutas ----------
 @app.route('/')
 def index():
     perfumes = tabla_perfumes.scan().get('Items', [])
     for perfume in perfumes:
         perfume['precio'] = float(perfume['precio'])
         perfume['stock'] = int(perfume['stock'])
-    return render_template_string(main_page_html, perfumes=perfumes)
 
-# Admin login
+    carrito = session.get('carrito', [])
+    total = sum(item['precio'] * item['cantidad'] for item in carrito)
+    mensaje_compra = session.pop('mensaje_compra', None)
+
+    return render_template_string(main_page_html, perfumes=perfumes, carrito=carrito, total=total, mensaje_compra=mensaje_compra)
+
 @app.route('/admin_login', methods=['GET', 'POST'])
 def admin_login():
     mensaje = None
@@ -266,42 +279,104 @@ def admin_login():
                 mensaje = "Credenciales incorrectas"
         except Exception as e:
             mensaje = f"Error: {str(e)}"
+
     return render_template_string(admin_login_html, mensaje=mensaje)
 
-# Vista admin (solo si logueado)
+@app.route('/register', methods=['POST'])
+def register():
+    username = request.form['username']
+    password = request.form['password']
+    hashed_password = generate_password_hash(password)
+
+    try:
+        tabla_usuarios.put_item(Item={'username': username, 'password': hashed_password})
+        mensaje = "Usuario registrado correctamente"
+    except Exception as e:
+        mensaje = f"Error: {str(e)}"
+
+    return render_template_string(admin_login_html, mensaje=mensaje)
+
 @app.route('/admin', methods=['GET', 'POST'])
+@login_required
 def vista_admin():
-    if 'username' not in session:
-        return redirect('/admin_login')
-
-    mensaje = None
     if request.method == 'POST':
-        try:
-            nombre = request.form['nombre']
-            precio = Decimal(request.form['precio'])
-            imagen = request.form['imagen']
-            stock = int(request.form['stock'])
+        nombre = request.form.get('nombre', '').strip()
+        precio = request.form.get('precio', '').strip()
+        imagen = request.form.get('imagen', '').strip()
+        stock = request.form.get('stock', '').strip()
 
-            if not nombre or not imagen:
-                mensaje = "Todos los campos son obligatorios"
-            else:
-                tabla_perfumes.put_item(Item={
-                    'nombre': nombre,
-                    'precio': precio,
-                    'imagen': imagen,
-                    'stock': stock
-                })
-                mensaje = "Perfume agregado exitosamente"
-        except Exception as e:
-            mensaje = f"Error: {str(e)}"
+        if not nombre or not precio or not stock:
+            return "Datos incompletos", 400
+
+        try:
+            precio = Decimal(precio)
+            stock = int(stock)
+        except ValueError:
+            return "Precio o stock no válidos", 400
+
+        tabla_perfumes.put_item(Item={
+            'nombre': nombre,
+            'precio': precio,
+            'imagen': imagen,
+            'stock': stock
+        })
 
     perfumes = tabla_perfumes.scan().get('Items', [])
     for perfume in perfumes:
         perfume['precio'] = float(perfume['precio'])
         perfume['stock'] = int(perfume['stock'])
-    return render_template_string(admin_html, perfumes=perfumes, mensaje=mensaje)
 
-# Agregar al carrito
+    return render_template_string(admin_html, perfumes=perfumes)
+
+@app.route('/editar_perfume/<nombre>', methods=['POST'])
+@login_required
+def editar_perfume(nombre):
+    stock = request.form.get('stock', '').strip()
+    precio = request.form.get('precio', '').strip()
+
+    if not precio or not stock:
+        return "Datos incompletos", 400
+
+    try:
+        stock = int(stock)
+        precio = Decimal(precio)
+    except ValueError:
+        return "Precio o stock no válidos", 400
+
+    tabla_perfumes.update_item(
+        Key={'nombre': nombre},
+        UpdateExpression="set stock = :s, precio = :p",
+        ExpressionAttributeValues={':s': stock, ':p': precio}
+    )
+
+    return redirect('/admin')
+
+@app.route('/agregar_perfume', methods=['POST'])
+@login_required
+def agregar_perfume():
+    nombre = request.form.get('nombre', '').strip()
+    precio = request.form.get('precio', '').strip()
+    imagen = request.form.get('imagen', '').strip()
+    stock = request.form.get('stock', '').strip()
+
+    if not nombre or not precio or not stock:
+        return "Datos incompletos", 400
+
+    try:
+        precio = Decimal(precio)
+        stock = int(stock)
+    except ValueError:
+        return "Precio o stock no válidos", 400
+
+    tabla_perfumes.put_item(Item={
+        'nombre': nombre,
+        'precio': precio,
+        'imagen': imagen,
+        'stock': stock
+    })
+
+    return redirect('/admin')
+
 @app.route('/agregar_carrito', methods=['POST'])
 def agregar_carrito():
     if 'carrito' not in session:
@@ -313,28 +388,57 @@ def agregar_carrito():
     response = tabla_perfumes.get_item(Key={'nombre': nombre})
     perfume = response.get('Item')
 
-    if perfume:
-        stock = int(perfume['stock'])
+    if perfume and int(perfume['stock']) > 0:
         carrito = session['carrito']
-
         for item in carrito:
             if item['nombre'] == nombre:
-                if item['cantidad'] < stock:
-                    item['cantidad'] += 1
+                item['cantidad'] += 1
                 break
         else:
-            if stock > 0:
-                carrito.append({'nombre': nombre, 'precio': precio, 'cantidad': 1})
+            carrito.append({'nombre': nombre, 'precio': precio, 'cantidad': 1})
 
         session['carrito'] = carrito
+        session.modified = True
 
-    perfumes = tabla_perfumes.scan().get('Items', [])
-    for perfume in perfumes:
-        perfume['precio'] = float(perfume['precio'])
-        perfume['stock'] = int(perfume['stock'])
-    return render_template_string(main_page_html, perfumes=perfumes)
+    return redirect('/')
 
-# Logout
+@app.route('/eliminar_carrito', methods=['POST'])
+def eliminar_carrito():
+    nombre = request.form['nombre']
+    carrito = session.get('carrito', [])
+    carrito = [item for item in carrito if item['nombre'] != nombre]
+    session['carrito'] = carrito
+    session.modified = True
+    return redirect('/')
+
+@app.route('/comprar', methods=['POST'])
+def comprar():
+    carrito = session.get('carrito', [])
+
+    for item in carrito:
+        nombre = item['nombre']
+        cantidad = item['cantidad']
+
+        response = tabla_perfumes.get_item(Key={'nombre': nombre})
+        perfume = response.get('Item')
+
+        if perfume:
+            nuevo_stock = int(perfume['stock']) - cantidad
+            if nuevo_stock < 0:
+                session['mensaje_compra'] = f"Stock insuficiente para {nombre}"
+                return redirect('/')
+
+            tabla_perfumes.update_item(
+                Key={'nombre': nombre},
+                UpdateExpression="set stock = :s",
+                ExpressionAttributeValues={':s': nuevo_stock}
+            )
+
+    session['carrito'] = []
+    session['mensaje_compra'] = "¡Gracias por tu compra!"
+    session.modified = True
+    return redirect('/')
+
 @app.route('/logout')
 def logout():
     session.clear()

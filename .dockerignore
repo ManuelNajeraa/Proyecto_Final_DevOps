@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pem
+.env
+main.tf
+readme.md
+requeriments.txt

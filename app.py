@@ -109,13 +109,13 @@ style = """
         color: green;
         font-weight: bold;
     }
-    footer {
-    background-color: #4b2e2e;
-    color: white;
-    text-align: center;
-    padding: 15px;
-    font-weight: bold;
-    margin-top: 40px;
+        footer {
+            background-color: #4b2e2e;
+            color: white;
+            text-align: center;
+            padding: 15px;
+            font-weight: bold;
+            margin-top: 40px;
 }
 
 </style>

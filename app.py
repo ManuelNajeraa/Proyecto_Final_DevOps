@@ -109,6 +109,15 @@ style = """
         color: green;
         font-weight: bold;
     }
+    footer {
+    background-color: #4b2e2e;
+    color: white;
+    text-align: center;
+    padding: 15px;
+    font-weight: bold;
+    margin-top: 40px;
+}
+
 </style>
 """
 
@@ -172,6 +181,9 @@ main_page_html = style + """
         <button type="submit">Comprar ahora</button>
     </form>
     {% endif %}
+    <footer>
+        <p>&copy; 2023 J & M Aromas. Todos los derechos reservados.</p>
+    </footer>
 </body>
 </html>
 """
@@ -460,3 +472,4 @@ def logout():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+    
